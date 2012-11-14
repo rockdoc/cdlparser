@@ -55,7 +55,7 @@ XDR_INT_MAX =  2147483647
 NC_NP_DATA_TYPE_MAP = {
    'byte':    'b',
    'char':    'c',
-   'short':   's',
+   'short':   'h',
    'int':     'i',
    'integer': 'i',
    'long':    'i',
@@ -430,7 +430,7 @@ class CDL3Parser(CDLParser) :
       if p[1] in self.ncdataset.variables :
          raise CDLContentError("Duplicate declaration of variable %s" % p[1])
       self.curr_var = self.ncdataset.createVariable(p[1], self.datatype, p[2], shuffle=False)
-      self.logger.info("Created variable %s with data type %s and dimensions %s" % (p[1], self.datatype, p[2]))
+      self.logger.info("Created variable %s with data type '%s' and dimensions %s" % (p[1], self.datatype, p[2]))
 
    def p_var(self, p) :
       """var : IDENT"""
@@ -526,7 +526,7 @@ class CDL3Parser(CDLParser) :
       if self.ncdataset :
          var = self.ncdataset.variables[p[1]]
          var[:] = p[3]
-         self.logger.info("Set data values for variable %s" % (p[1]))
+         self.logger.info("Wrote %d data values for variable %s" % (len(p[1]), p[1]))
 
    def p_constlist(self, p) :
       """constlist : constlist ',' dconst
@@ -557,7 +557,7 @@ class CDL3Parser(CDLParser) :
             if '_FillValue' in self.curr_var.ncattrs() :
                p[0] = self.curr_var._FillValue
             else :
-               p[0] = get_default_fill_value(self.curr_var.dtype.kind)
+               p[0] = get_default_fill_value(self.curr_var.dtype.char)
          else :
             p[0] = p[1]
       else :
@@ -587,12 +587,12 @@ class CDL3Parser(CDLParser) :
 #---------------------------------------------------------------------------------------------------
 def get_default_fill_value(datatype) :
 #---------------------------------------------------------------------------------------------------
-   """Returns the default netCDF fill value for the specified numpy data type code."""
+   """Returns the default netCDF fill value for the specified numpy dtype.char code."""
    if datatype == 'b' :
       return NC_FILL_BYTE
-   elif datatype == 'c' :
+   elif datatype in ('S','U') :
       return NC_FILL_CHAR
-   elif datatype == 's' :
+   elif datatype in ('h','s') :
       return NC_FILL_SHORT
    elif datatype == 'i' :
       return NC_FILL_INT
