@@ -1,0 +1,18 @@
+netcdf unlimdim {
+// Test file containing an unlimited time dimension.
+
+dimensions:
+   lat = 2 ;
+   lon = 2 ;
+   time = unlimited ;
+
+variables:
+   float tas(time, lat, lon) ;
+      tas:standard_name = "air_temperature" ;
+      tas:units = "K" ;
+
+// global attributes
+
+data:
+   tas = 1.0f, 2.0f, 3.0f, 4.0f ;
+}

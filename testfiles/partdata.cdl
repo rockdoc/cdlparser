@@ -1,0 +1,16 @@
+netcdf partdata {
+// Test file in which only part of a variable's data array is defined.
+// The missing slots should get filled by the default fill value.
+
+dimensions:
+   dim1 = 10 ;
+
+variables:
+   float var1(dim1) ;
+      var1:comment = "a variable with a partial data array" ;
+
+// global attributes
+
+data:
+   var1 = 0.0f, 1.0f, 2.0f ;
+}

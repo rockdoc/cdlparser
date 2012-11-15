@@ -1,0 +1,26 @@
+netcdf basics {
+// Basic test file containing a handful of common netCDF-3 constructs. 
+
+dimensions:
+   lev = 1 ;
+   lat = 2 ;
+   lon = 3 ;
+
+variables:
+   int tas(lev, lat, lon) ;
+      tas:standard_name = "air_temperature" ;
+      tas:units = "K" ;
+      tas:radius = 6371000.0 ;
+      tas:iarr = 0, 1, 2 ;
+
+   double height(lev) ;
+      height:standard_name = "height" ;
+
+// global attributes
+   :Conventions = "CF-1.5" ;
+   :iarr = 1, 2, 3 ;
+
+data:
+   tas = 0, 1, 2, 3, 4, 5 ;
+   height = 10.0 ;
+}

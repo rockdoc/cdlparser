@@ -1,0 +1,40 @@
+netcdf constants {
+// Test file containing definitions of attributes using all of the recognised CDL constants.
+
+dimensions:
+   dim1 = 3 ;
+
+variables:
+   float var1(dim1) ;
+      var1:att1 = "dummy attribute" ;
+
+// global attributes
+   :c1 = "foo" ;      // with spaces
+   :c2="bar" ;        // w/o spaces
+
+   :byte1 = 123b ;
+   :byte2 = 'a' ;     // 97
+   :byte3 = '\n' ;    // 10
+
+   :short1 = 1234s ;
+   :short2 = -888s ;
+   :short3 = 0xFFs ;  // 255
+   :short4 = 077s ;   // 63
+
+   :int1 = -56789 ;
+   :int2 = 123456 ;
+   :int3 = 0666 ;     // 438
+   :int4 = 0x2F ;     // 47
+   :iarray = 1, 2, 3, 4 ;
+
+   :float1 = 123.0f ;
+   :float2 = 0.2718e1f ;
+   :farray = 1.0f, 2.0f, 3.0f ;
+
+   :double1 = 3.14159d ;
+   :double2 = 0.010203 ;
+   :darray = 1.0, 2.0, 3.0 ;
+
+data:
+   var1 = 1.0f, 2.0f, _ ;
+}
