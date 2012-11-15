@@ -16,12 +16,15 @@ flex and yacc files used by the ncgen3 utility that ships with the standard netC
 The basic usage idiom is as follows:
 
 myparser = CDL3Parser(...)
-myparser.parse(cdlfilename, ...)
+ncdataset = myparser.parse_file(cdlfilename, ...)
 
 If the input CDL file is valid then the above code should result in a netCDF-3 file being
 generated, either in the same directory as the CDL file (and with the .cdl extension replaced
-with .nc), or else in the location specified via the ncfile keyword argument to the parse()
-method.
+with .nc), or else in the location specified via the optional ncfile keyword argument to the
+parse_file() method.
+
+The ncdataset variable returned by the parse_file() method is a handle to a netCDF4.Dataset object,
+which you can then query and manipulate as needed.
 
 Package Dependencies:
    PLY - http://www.dabeaz.com/ply/
@@ -29,7 +32,7 @@ Package Dependencies:
 
 Creator: Phil Bentley
 """
-__version_info__ = (0, 0, 1, 'beta', 0)
+__version_info__ = (0, 0, 2, 'beta', 0)
 __version__ = "%d.%d.%d-%s" % __version_info__[0:4]
 
 import sys, os, logging
@@ -100,12 +103,26 @@ class CDLParser(object) :
       self.parser = yacc.yacc(module=self, debug=self.debug, debugfile=self.debugfile,
          tabmodule=self.tabmodule)
 
-   def parse(self, cdlfile, ncfile=None) :
+   def parse_file(self, cdlfile, ncfile=None) :
+      """
+      Parse the specified CDL file, writing the output to the netCDF file specified via the
+      optional ncfile argument. If that is not specified then the output filename is derived by
+      replacing the extension of the input file with '.nc'.
+      
+      :param cdlfile: Pathname of the CDL file to parse.
+      :param ncfile: Pathname of the netCDF file to receive output.
+      :returns: A handle to a netCDF4.Dataset object.
+      """
       self.ncfile = ncfile or os.path.splitext(cdlfile)[0] + '.nc'
       f = open(cdlfile)
       data = f.read()   # FIXME: can we parse input w/o reading entire CDL file into memory?
       f.close()
+      self.ncdataset = None
+      self.curr_var = None
+      self.curr_dim = None
+      self.rec_dim = None
       self.parser.parse(input=data, lexer=self.lexer)
+      return self.ncdataset
 
    def init_logger(self) :
       """Configure the global logger object."""
@@ -163,7 +180,7 @@ class CDL3Parser(CDLParser) :
 
    exp = r'([eE][+-]?[0-9]+)'
    float_const  = r'[+-]?[0-9]*\.[0-9]*' + exp + r'?[Ff]|[+-]?[0-9]*' + exp + r'[Ff]'
-   double_const = r'[+-]?[0-9]*\.[0-9]*' + exp + r'?[LlDd]?|[+-]?[0-9]*' + exp + r'[LlDd]?'
+   double_const = r'[+-]?[0-9]*\.[0-9]*' + exp + r'?[Dd]?|[+-]?[0-9]*' + exp + r'[Dd]?'
    byte_const = r"([+-]?[0-9]+[Bb])|" + \
                 r"(\'[^\\]\')|(\'\\.\')|" + \
                 r"(\'\\[0-7][0-7]?[0-7]?\')|" + \
@@ -171,13 +188,10 @@ class CDL3Parser(CDLParser) :
 
    def __init__(self, **kw) :
       CDLParser.__init__(self, **kw)
+      # following assignments could probably move to the base class
       self.dryrun = False
       self.file_format = kw.get("file_format", "NETCDF3_CLASSIC")
-      self.ncdataset = None
-      self.curr_dim = None
-      self.curr_var = None
-      self.ndims = 0
-      self.rec_dim = -1
+      self.close_on_completion = kw.get("close_on_completion", True)
 
    ### TOKEN DEFINITIONS
 
@@ -247,6 +261,7 @@ class CDL3Parser(CDLParser) :
 
    @TOKEN(double_const)
    def t_DOUBLE_CONST(self, t) :
+      # Original regex in ncgen3.l file. Since the [Ll] suffix is now deprecated, it's not used here.
       #r'[+-]?[0-9]*\.[0-9]*' + exp + r'?[LlDd]?|[+-]?[0-9]*' + exp + r'[LlDd]?'
       try :
          if t.value[-1] in "dD" :
@@ -291,38 +306,22 @@ class CDL3Parser(CDLParser) :
       t.value = int_val
       return t
 
-   # TODO: the next two tokens are as per ncgen.l, but could usefully be combined into one method
-
-   # octal or hex integer
-   def t_LONG_CONST(self, t) :
-      r'0[xX]?[0-9a-fA-F]+[lL]?'
+   # The following implementation for handling integer constants is a conflation of the separate
+   # mechanisms defined in ncgen3.l for decimal, octal and hex integer constants.
+   def t_INT_CONST(self, t) :
+      r'[+-]?([1-9][0-9]*|0[xX]?[0-9a-fA-F]+|0)'   # [Ll] suffix has been deprecated
+      #r'[+-]?([1-9][0-9]*|0)[lL]?' # original regex for decimal integers in ncgen3.l file
+      #r'0[xX]?[0-9a-fA-F]+[lL]?'   # original regex for octal or hex integers in ncgen3.l file
       try :
          long_val = long(eval(t.value))
       except :
-         errmsg = "Bad long constant: %s" %  t.value
+         errmsg = "Bad integer constant: %s" %  t.value
          raise CDLContentError(errmsg)
       if long_val < XDR_INT_MIN or long_val > XDR_INT_MAX :
-         t.value = float(long_val)
-         t.type = "DOUBLE_CONST"   # FIXME: this is what ncgen does, but why?
-      else :
-         t.value = int(long_val)
-         t.type = "INT_CONST"
-      return t
-
-   # regular decimal integer
-   def t_NUMERIC_CONST(self, t) :
-      r'[+-]?([1-9][0-9]*|0)[lL]?'
-      try :
-         long_val = long(eval(t.value))
-      except :
-         errmsg = "Bad numeric constant: %s" %  t.value
+         errmsg = "Integer constant outside valid range (%d -> %d): %s" % (XDR_INT_MIN, XDR_INT_MAX, int_val)
          raise CDLContentError(errmsg)
-      if long_val < XDR_INT_MIN or long_val > XDR_INT_MAX :
-         t.value = float(long_val)
-         t.type = "DOUBLE_CONST"   # FIXME: this is what ncgen does, but why?
       else :
          t.value = int(long_val)
-         t.type = "INT_CONST"
       return t
 
    # newlines
@@ -349,8 +348,10 @@ class CDL3Parser(CDLParser) :
 
    def p_ncdesc(self, p) :
       """ncdesc : NETCDF init_netcdf LBRACE dimsection vasection datasection RBRACE"""
-      if self.ncdataset : self.ncdataset.close()
-      self.logger.info("Closed netCDF file")
+      if self.ncdataset :
+         if self.close_on_completion : self.ncdataset.close()
+         self.logger.info("Closed netCDF file " + self.ncfile)
+      self.logger.info("Finished parsing")
 
    def p_init_netcdf(self, p) :
       """init_netcdf :"""
@@ -376,19 +377,18 @@ class CDL3Parser(CDLParser) :
       dimname = ""
       if isinstance(p[3], basestring) :
          if p[3] == "unlimited" :
-            if self.rec_dim != -1 : raise CDLContentError("Only one UNLIMITED dimension is allowed.")
-            self.rec_dim = self.ndims
+            if self.rec_dim : raise CDLContentError("Only one UNLIMITED dimension is allowed.")
             dimname = p[1]
             dimlen = 0
-            self.ndims += 1
+            self.rec_dim = dimname
       else :
          dimname = p[1]
          dimlen = int(p[3])
-         self.ndims += 1
+         if dimlen <= 0 : raise CDLContentError("Length of dimension '%s' must be positive." % dimname)
       if dimname :
-         if dimlen <= 0 : CDLContentError("Length of dimension '%s' must be positive." % dimname)
          self.ncdataset.createDimension(dimname, dimlen)
-         self.logger.info("Created dimension %s with length %s" % (dimname, dimlen))
+         unlim = " (unlimited)" if dimlen == 0 else ""
+         self.logger.info("Created dimension %s with length %s%s" % (dimname, dimlen, unlim))
 
    def p_dimd(self, p) :
       """dimd : dim"""
@@ -429,8 +429,9 @@ class CDL3Parser(CDLParser) :
       """varspec : var dimspec"""
       if p[1] in self.ncdataset.variables :
          raise CDLContentError("Duplicate declaration of variable %s" % p[1])
-      self.curr_var = self.ncdataset.createVariable(p[1], self.datatype, p[2], shuffle=False)
-      self.logger.info("Created variable %s with data type '%s' and dimensions %s" % (p[1], self.datatype, p[2]))
+      dims = len(p)==3 and p[2] or ()
+      self.curr_var = self.ncdataset.createVariable(p[1], self.datatype, dimensions=dims, shuffle=False)
+      self.logger.info("Created variable %s with data type '%s' and dimensions %s" % (p[1], self.datatype, dims))
 
    def p_var(self, p) :
       """var : IDENT"""
@@ -458,18 +459,28 @@ class CDL3Parser(CDLParser) :
       """gattdecls : gattdecls gattdecl EOL
                    | gattdecl EOL"""
 
+   # Note: in CDL v3 attribute types, whether global or variable scoped, are deduced from the
+   # attribute value. They cannot be prefixed with a type declaration, as is possible at CDL v4.
    def p_gattdecl(self, p) :
       """gattdecl : gatt EQUALS attvallist"""
       if self.ncdataset :
-         self.ncdataset.setncattr(p[1], p[3])
-         self.logger.info("Created global attribute %s=%s" % (p[1], p[3]))
+         if len(p[3]) == 1 :
+            attval = p[3][0]
+         else :
+            attval = p[3]
+         self.ncdataset.setncattr(p[1], attval)
+         self.logger.info("Created global attribute %s = %s" % (p[1], repr(attval)))
 
    def p_attdecl(self, p) :
       """attdecl : att EQUALS attvallist"""
       # TODO: check for _FillValue attribute
-      if self.curr_var :
-         self.curr_var.setncattr(p[1], p[3])
-         self.logger.info("Created var attribute %s=%s" % (p[1], p[3]))
+      if self.curr_var is not None :
+         if len(p[3]) == 1 :
+            attval = p[3][0]
+         else :
+            attval = p[3]
+         self.curr_var.setncattr(p[1], attval)
+         self.logger.info("Created variable attribute %s = %s" % (p[1], repr(attval)))
 
    def p_att(self, p) :
       """att : avar ':' attr"""
@@ -523,10 +534,19 @@ class CDL3Parser(CDLParser) :
    def p_datadecl(self, p) :
       """datadecl : avar EQUALS constlist"""
       # TODO: pad out with fill values if array length is less than variable size
+      # TODO: add logic to cater for unlimited dimensions
       if self.ncdataset :
          var = self.ncdataset.variables[p[1]]
-         var[:] = p[3]
-         self.logger.info("Wrote %d data values for variable %s" % (len(p[1]), p[1]))
+         arr = p[3]
+         arrlen = len(arr)
+         if arrlen < var.size :
+            if '_FillValue' in var.ncattrs() :
+               fv = var._FillValue
+            else :
+               fv = get_default_fill_value(var.dtype.char)
+            arr.extend([fv]*(var.size-arrlen))
+         var[:] = arr
+         self.logger.info("Wrote %d data values for variable %s" % (len(arr), p[1]))
 
    def p_constlist(self, p) :
       """constlist : constlist ',' dconst
@@ -618,7 +638,7 @@ def main() :
       vals = [eval(x.split('=')[1]) for x in sys.argv[2:]]
       kwargs = dict(zip(keys,vals))
    cdlparser = CDL3Parser(**kwargs)
-   cdlparser.parse(cdlfile)
+   ncdataset = cdlparser.parse_file(cdlfile)
 
 #---------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
