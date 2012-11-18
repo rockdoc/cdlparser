@@ -7,12 +7,20 @@ dimensions:
    time = unlimited ;
 
 variables:
+   int time(time) ;
+      time:units = "days since 1970-01-01" ;
+   float lat(lat) ;
+      lat:standard_name = "latitude" ;
+   float lon(lon) ;
+      lon:standard_name = "longitude" ;
    float tas(time, lat, lon) ;
       tas:standard_name = "air_temperature" ;
-      tas:units = "K" ;
 
 // global attributes
 
 data:
-   tas = 1.0f, 2.0f, 3.0f, 4.0f ;
+   time = 1, 2, 3 ;
+   lat = 0.0f, 10.0f ;
+   lon = 0.0f, 20.0f ;
+   tas = 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0 ;
 }
