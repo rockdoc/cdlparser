@@ -1,0 +1,21 @@
+netcdf escaped\:name\#unwise {
+// Test file which defines a netcdf name containing escaped characters. 
+// This sort of usage is not recommended.
+
+dimensions:
+   lev = 1 ;
+   lat = 2 ;
+   lon = 3 ;
+
+variables:
+   int tas(lev, lat, lon) ;
+      tas:standard_name = "air_temperature" ;
+      tas:units = "K" ;
+
+// global attributes
+   :comment = "netcdf names with escaped characters are not recommended!" ;
+   :remarks = "This is line 1.\nAnd this is line 2\twith an embedded tab character." ;
+
+data:
+   tas = 0, 1, 2, 3, 4, 5 ;
+}

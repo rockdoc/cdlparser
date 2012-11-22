@@ -37,7 +37,7 @@ Package Dependencies:
 
 Creator: Phil Bentley
 """
-__version_info__ = (0, 0, 2, 'beta', 0)
+__version_info__ = (0, 0, 3, 'beta', 0)
 __version__ = "%d.%d.%d-%s" % __version_info__[0:4]
 
 import sys, os, logging
@@ -48,12 +48,12 @@ import netCDF4 as nc4
 import numpy as np
 
 # default fill values for netCDF-3 data types (as defined in netcdf.h include file)
-NC_FILL_BYTE   = -127
-NC_FILL_CHAR   = chr(0)
-NC_FILL_SHORT  = -32767
-NC_FILL_INT    = -2147483647
-NC_FILL_FLOAT  = 9.9692099683868690e+36   # will get rounded to 9.96921e+36
-NC_FILL_DOUBLE = 9.9692099683868690e+36
+NC_FILL_BYTE   = np.int8(-127)
+NC_FILL_CHAR   = np.str_('\0')
+NC_FILL_SHORT  = np.int16(-32767)
+NC_FILL_INT    = np.int32(-2147483647)
+NC_FILL_FLOAT  = np.float32(9.9692099683868690e+36)   # should get rounded to 9.96921e+36
+NC_FILL_DOUBLE = np.float64(9.9692099683868690e+36)
 
 # miscellaneous constants as defined in ncgen3.l file
 FILL_STRING = "_"
@@ -88,14 +88,18 @@ class CDLContentError(Exception) :
 #---------------------------------------------------------------------------------------------------
 class CDLParser(object) :
 #---------------------------------------------------------------------------------------------------
-   """ Base class for a CDL lexer/parser that has tokens and rules defined as methods."""
+   """
+   Base class for a CDL lexer/parser that has tokens and rules defined as methods. Client code
+   should instantiate concrete subclasses, such as CDL3Parser, rather than this abstract base class.
+   """
    tokens = []
    precedence = []
 
    def __init__(self, **kw) :
       """
       The currently supported keyword arguments, with their default values, are described below. Any
-      other keyword argments are passed through as-is to the PLY parser (via the yacc.yacc function)
+      other keyword argments are passed through as-is to the PLY parser (via the yacc.yacc function).
+      For more information about the latter, visit http://www.dabeaz.com/ply/ply.html
       
       close_on_completion: If set to true, the netCDF4.Dataset handle is closed upon completion
          of parsing. Set to false to skip invocation of the close() method [default: True]
@@ -126,14 +130,16 @@ class CDLParser(object) :
    def parse_file(self, cdlfile, ncfile=None) :
       """
       Parse the specified CDL file, writing the output to the netCDF file specified via the
-      optional ncfile argument. If that is not specified then the output filename is derived by
-      replacing the extension of the input file with '.nc'.
+      optional ncfile argument. If that is not specified then the output filename is derived
+      from the name specified in the first line of the CDL file (which is the normal behaviour
+      of the ncgen command).
       
       :param cdlfile: Pathname of the CDL file to parse.
       :param ncfile: Pathname of the netCDF file to receive output.
       :returns: A handle to a netCDF4.Dataset object.
       """
-      self.ncfile = ncfile or os.path.splitext(cdlfile)[0] + '.nc'
+      self.cdlfile = cdlfile
+      self.ncfile = ncfile
       f = open(cdlfile)
       data = f.read()   # FIXME: can we parse input w/o reading entire CDL file into memory?
       f.close()
@@ -208,6 +214,10 @@ class CDL3Parser(CDLParser) :
                 r"(\'\\[xX][0-9a-fA-F][0-9a-fA-F]?\')"
 
    def __init__(self, **kw) :
+      """
+      Construct a CDL3Parser instance. See the CDLParser.__init__ docstring for a description of the
+      currently supported keyword arguments.
+      """
       CDLParser.__init__(self, **kw)
 
    ### TOKEN DEFINITIONS
@@ -230,8 +240,7 @@ class CDL3Parser(CDLParser) :
       if len(parts) < 2 :
          raise CDLSyntaxError("A netCDF name is required")
       netcdfname = parts[1]
-      # TODO: deescapify(netcdfname);  # so "\5foo" becomes "5foo", for example
-      t.value = netcdfname
+      t.value = deescapify(netcdfname)
       return t
 
    # main section identifiers
@@ -243,8 +252,12 @@ class CDL3Parser(CDLParser) :
    # character strings
    @TOKEN(termstring)
    def t_TERMSTRING(self, t) :
-      # TODO: expand_escapes(termstring,(char *)yytext,yyleng) - defined in ncgen3/escapes.c
-      t.value = t.value[1:-1]   # eval(t.value) might be preferable here
+      tstring = expand_escapes(t.value)
+      i = 0 ; j = len(tstring)
+      if tstring[0]  == '"' : i = 1
+      if tstring[-1] == '"' : j = -1
+      t.value = tstring[i:j]
+      #t.value = eval(tstring)
       return t
 
    # comments
@@ -372,6 +385,7 @@ class CDL3Parser(CDLParser) :
 
    def p_init_netcdf(self, p) :
       """init_netcdf :"""
+      if not self.ncfile : self.ncfile = os.path.join(os.path.dirname(self.cdlfile), p[-1]+'.nc')
       self.ncdataset = nc4.Dataset(self.ncfile, 'w', format=self.file_format)
       self.logger.info("Initialised netCDF file " + self.ncfile)
 
@@ -398,12 +412,14 @@ class CDL3Parser(CDLParser) :
             dimname = p[1]
             dimlen = 0
             self.rec_dim = dimname
+         else :
+            raise CDLContentError("Unrecognised dimension length specifier: '%s'." % p[3])
       else :
          dimname = p[1]
          dimlen = int(p[3])
          if dimlen <= 0 : raise CDLContentError("Length of dimension '%s' must be positive." % dimname)
       if dimname :
-         self.ncdataset.createDimension(dimname, dimlen)
+         self.curr_dim = self.ncdataset.createDimension(dimname, dimlen)
          unlim = " (unlimited)" if dimlen == 0 else ""
          self.logger.info("Created dimension %s with length %s%s" % (dimname, dimlen, unlim))
 
@@ -481,27 +497,16 @@ class CDL3Parser(CDLParser) :
    def p_gattdecl(self, p) :
       """gattdecl : gatt EQUALS attvallist"""
       if self.ncdataset :
-         if len(p[3]) == 1 :
-            attval = p[3][0]
-         else :
-            attval = p[3]
-         self.ncdataset.setncattr(p[1], attval)
-         self.logger.info("Created global attribute %s = %s" % (p[1], repr(attval)))
+         self.set_attribute(':'+p[1], p[3])
 
    def p_attdecl(self, p) :
       """attdecl : att EQUALS attvallist"""
-      # TODO: check for _FillValue attribute
-      if self.curr_var is not None :
-         if len(p[3]) == 1 :
-            attval = p[3][0]
-         else :
-            attval = p[3]
-         self.curr_var.setncattr(p[1], attval)
-         self.logger.info("Created attribute %s:%s = %s" % (self.curr_var._name, p[1], repr(attval)))
+      if self.ncdataset :
+         self.set_attribute(p[1], p[3])
 
    def p_att(self, p) :
       """att : avar ':' attr"""
-      p[0] = p[3]
+      p[0] = p[1] + ':' + p[3]
 
    def p_gatt(self, p) :
       """gatt : ':' attr"""
@@ -555,8 +560,11 @@ class CDL3Parser(CDLParser) :
             raise CDLContentError("Variable %s referenced in data section is not defined." % p[1])
          var = self.ncdataset.variables[p[1]]
          arr = p[3]
-         self.put_var_data(var, arr)
-         self.logger.info("Wrote %d data values for variable %s" % (len(arr), p[1]))
+         try :
+            self.write_var_data(var, arr)
+            self.logger.info("Wrote %d data values for variable %s" % (len(arr), p[1]))
+         except CDLContentError :
+            pass  # FIXME: for now continue after data write error
 
    def p_constlist(self, p) :
       """constlist : constlist ',' dconst
@@ -614,7 +622,33 @@ class CDL3Parser(CDLParser) :
          self.logger.error("Syntax error at token %s, value %s" % (p.type, p.value))
       yacc.token()
 
-   def put_var_data(self, var, arr) :
+   def set_attribute(self, attid, attvallist) :
+      """Set a global or variable-scope attribute value."""
+      if isinstance(attvallist, (list,tuple)) and len(attvallist) == 1 :
+         attval = attvallist[0]
+      else :
+         attval = attvallist
+      # global-scope attribute
+      if attid[0] == ':' :
+         if attid[1:] in self.ncdataset.ncattrs() :
+            raise CDLContentError("Duplicate global attribute: %s" % attid)
+         self.ncdataset.setncattr(attid[1:], attval)
+         self.logger.info("Created global attribute %s = %s" % (attid, repr(attval)))
+      # variable-scope attribute
+      else :
+         try :
+            (varname,attname) = attid.split(':')
+            var = self.ncdataset.variables[varname]
+            if attname in var.ncattrs() :
+               raise CDLContentError("Duplicate attribute: %s" % attid)
+            if attname == "_FillValue" :
+               attval = var.dtype.type(attval)
+            var.setncattr(attname, attval)
+            self.logger.info("Created attribute %s:%s = %s" % (varname, attname, repr(attval)))
+         except :
+            raise CDLContentError("Invalid attribute name specification: '%s'" % attid)
+
+   def write_var_data(self, var, arr) :
       """Write data array to variable var."""
       arrlen = len(arr)
 
@@ -643,16 +677,53 @@ class CDL3Parser(CDLParser) :
          arrlen = len(arr)
 
       # convert input data to suitably shaped numpy array
-      shape = list(var.shape)
-      nparr = np.array(arr)
-      if recvar :
-         nrecs = arrlen / reclen
-         shape[0] = nrecs
-         nparr.shape = shape
-         var[:] = nparr
+      try :
+         shape = list(var.shape)
+         nparr = np.array(arr, dtype=var.dtype)
+         if recvar :
+            nrecs = arrlen / reclen
+            shape[0] = nrecs
+            nparr.shape = shape
+            var[:] = nparr
+         else :
+            nparr.shape = shape
+            var[:] = nparr
+      except Exception, exc :
+         errmsg = "Error attempting to write data array for variable %s\n" % var._name
+         errmsg += "Exception details are as follows:\n%s" % str(exc)
+         self.logger.error(errmsg)
+         raise CDLContentError(errmsg)
+
+#---------------------------------------------------------------------------------------------------
+def deescapify(name) :
+#---------------------------------------------------------------------------------------------------
+   """
+   A Python version of ncgen's deescapify() function (see genlib.c). The code here is a fairly
+   literal translation of that function. I expect this could be recoded in a more pythonic way
+   using, say, regular expressions.
+   """
+   if '\\' not in name : return name
+   newname = ''
+   i = 0
+   # delete '\' chars, except change '\\' to '\'
+   while i < len(name) :
+      if name[i] == '\\' :
+         if name[i+1] == '\\' :
+            newname += '\\'
+            i += 1
       else :
-         nparr.shape = shape
-         var[:] = nparr
+         newname += name[i]
+      i += 1
+   return newname
+
+#---------------------------------------------------------------------------------------------------
+def expand_escapes(tstring) :
+#---------------------------------------------------------------------------------------------------
+   """
+   A Python version of ncgen's expand_escapes() function (see escapes.c). This function simply
+   uses the built-in string.decode() method.
+   """
+   return tstring.decode('string_escape')
 
 #---------------------------------------------------------------------------------------------------
 def get_default_fill_value(datatype) :

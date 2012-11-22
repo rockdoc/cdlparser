@@ -1,0 +1,29 @@
+netcdf fillvalue {
+// Test file containing a variable with its _FillValue attribute set,
+// plus an unlimited time dimension. 
+
+dimensions:
+   lat = 2 ;
+   lon = 2 ;
+   time = unlimited ;
+
+variables:
+   int time(time) ;
+      time:units = "days since 1970-01-01" ;
+   float lat(lat) ;
+      lat:standard_name = "latitude" ;
+   float lon(lon) ;
+      lon:standard_name = "longitude" ;
+   float tas(time, lat, lon) ;
+      tas:standard_name = "air_temperature" ;
+      tas:_FillValue = -1.0e30f ;
+
+// global attributes
+   :comment = "fill value test" ;
+
+data:
+   time = 1, 2, 3 ;
+   lat = 0.0f, 10.0f ;
+   lon = 0.0f, 20.0f ;
+   tas = _, _, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, _, _ ;
+}
