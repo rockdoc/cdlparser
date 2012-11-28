@@ -13,18 +13,38 @@
 A python parser for reading files encoded in netCDF-3 CDL format. The parser is based upon the
 flex and yacc files used by the ncgen3 utility that ships with the standard netCDF distribution.
 
-The basic usage idiom is as follows:
+The basic usage idiom for parsing CDL text files is as follows:
 
-myparser = CDL3Parser(...)
-ncdataset = myparser.parse_file(cdlfilename, ...)
+    myparser = CDL3Parser(...)
+    ncdataset = myparser.parse_file(cdlfilename, ...)
 
-If the input CDL file is valid then the above code should result in a netCDF-3 file being
-generated, either in the same directory as the CDL file (and with the .cdl extension replaced
-with .nc), or else in the location specified via the optional ncfile keyword argument to the
-parse_file() method.
+If the input CDL file is valid then the above code should result in a netCDF-3 file being generated.
+On completion of parsing the output filename can be obtained by querying the myparser.ncfile attribute.
 
 The ncdataset variable returned by the parse_file() method is a handle to a netCDF4.Dataset object,
-which you can then query and manipulate as needed.
+which you can then query and manipulate as needed. By default this dataset handle is left open when
+parsing has completed; hence you will need to call the object's close() method when you're done with
+it. If you know that you won't need to manipulate the dataset after parsing then you can set the
+close_on_completion keyword argument to True when the parser object is created, thus:
+
+    myparser = CDL3Parser(..., close_on_completion=True)
+    ncdataset = myparser.parse_file(cdlfilename, ...)
+
+By default the name of the netCDF file produced by the parse_file() method is taken from the dataset
+name defined in the first line of the CDL file (with a '.nc' extension appended), just as the ncgen
+command does. You can supply a different filename, however, via the optional ncfile keyword argument,
+e.g.:
+
+    ncdataset = myparser.parse_file(cdlfilename, ncfile="/my/nc/folder/stuff.nc", ...)
+
+In addition to parsing CDL files, you can also parse CDL definitions stored in plain text strings.
+The parse_data() method is used in this case, as shown below:
+
+    cdltext = 'netcdf mydataset { dimensions: dim1=10; variables: float var1(dim1); var1:comment="blah blah"; }'
+    myparser = CDL3Parser(...)
+    ncdataset = myparser.parse_data(cdltext)
+
+The above code should create a netCDF file called 'mydataset.nc' in the current working directory.
 
 You can control the format of the netCDF output file using the 'file_format' keyword argument to the
 CDL3Parser constructor. For a description of this and other keyword arguments, read the docstring
@@ -135,7 +155,12 @@ class CDLParser(object) :
       optional ncfile argument. If that is not specified then the output filename is derived
       from the name specified in the first line of the CDL file (which is the normal behaviour
       of the ncgen command).
-      
+
+      If successful, this method returns an open handle to a netCDF4.Dataset object. Client code
+      is responsible for calling the Dataset.close() method when the handle is no longer required.
+      Alternatively, this can be done immediately upon completion of parsing by setting the
+      close_on_completion keyword argument to True when instantiating the CDLParser instance.
+
       :param cdlfile: Pathname of the CDL file to parse.
       :param ncfile: Optional pathname of the netCDF file to receive output.
       :returns: A handle to a netCDF4.Dataset object.
@@ -152,7 +177,12 @@ class CDLParser(object) :
       optional ncfile argument. If that is not specified then the output filename is derived
       from the name specified in the first line of the CDL text (which is the normal behaviour
       of the ncgen command).
-      
+
+      If successful, this method returns an open handle to a netCDF4.Dataset object. Client code
+      is responsible for calling the Dataset.close() method when the handle is no longer required.
+      Alternatively, this can be done immediately upon completion of parsing by setting the
+      close_on_completion keyword argument to True when instantiating the CDLParser instance.
+
       :param cdltext: String containing the CDL text to parse.
       :param ncfile: Optional pathname of the netCDF file to receive output.
       :returns: A handle to a netCDF4.Dataset object.
@@ -178,7 +208,18 @@ class CDLParser(object) :
 #---------------------------------------------------------------------------------------------------
 class CDL3Parser(CDLParser) :
 #---------------------------------------------------------------------------------------------------
-   """Class for parsing a CDL file encoded in netCDF-3 classic format."""
+   """
+   Class for parsing a CDL file encoded in netCDF-3 classic format. Please refer to this module's
+   docstring and also the docstrings in the CDLParser base class for information regarding
+   recommended usage patterns.
+
+   All of the tokens making up the CDL3 grammar are encoded as attributes or methods whose names
+   begin with 't_'. Similarly, all of the CDL3 parsing rules are encapsulated within methods whose
+   names being with 'p_'. These naming conventions are as required by the PLY lexer and parser.
+   All t_ and p_ methods should be considered as private to this class. Client code does not need
+   to invoke them. In fact the only public methods currently supported are those encoded in the
+   CDLParser base class.
+   """
    # this tells the parser which parser rule to kick off with (the p_ncdesc method in this case)
    start = "ncdesc"
 
@@ -196,7 +237,7 @@ class CDL3Parser(CDLParser) :
    'unlimited':  'NC_UNLIMITED_K'
    }
 
-   # the full list of CDL tokens to parse
+   # the full list of CDL tokens to parse - mostly named exactly as per the ncgen.l file
    tokens = [
       'NETCDF', 'DIMENSIONS', 'VARIABLES', 'DATA', 'IDENT', 'TERMSTRING',
       'BYTE_CONST', 'CHAR_CONST', 'SHORT_CONST', 'INT_CONST', 'FLOAT_CONST', 'DOUBLE_CONST',
@@ -209,6 +250,7 @@ class CDL3Parser(CDLParser) :
    # Partially relaxed version of the UTF8 character set, and the one used in the ncgen3.l flex file.
    UTF8 = r'([\xC0-\xD6][\x80-\xBF])|([\xE0-\xEF][\x80-\xBF][\x80-\xBF])|([\xF0-\xF7][\x80-\xBF][\x80-\xBF][\x80-\xBF])'
 
+   # Following comment copied verbatim from ncgen.l file:
    # Don't permit control characters or '/' in names, but other special
    # chars OK if escaped.  Note that to preserve backwards
    # compatibility, none of the characters _.@+- should be escaped, as
@@ -529,8 +571,12 @@ class CDL3Parser(CDLParser) :
 
    def p_avar(self, p) :
       """avar : var"""
-      if self.ncdataset : self.curr_var = self.ncdataset.variables[p[1]]
-      p[0] = p[1]
+      varname = p[1]
+      if self.ncdataset :
+         if varname not in self.ncdataset.variables :
+            raise CDLContentError("Variable %s is not defined or reference precedes definition." % varname)
+         self.curr_var = self.ncdataset.variables[varname]
+      p[0] = varname
 
    def p_attr(self, p) :
       """attr : IDENT"""
@@ -783,6 +829,10 @@ def main() :
       kwargs = dict(zip(keys,vals))
    cdlparser = CDL3Parser(**kwargs)
    ncdataset = cdlparser.parse_file(cdlfile)
+   try :
+      ncdataset.close()   # wrap in try block since dataset may get closed by parser
+   except :
+      pass
 
 #---------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
