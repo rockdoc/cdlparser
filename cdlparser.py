@@ -13,6 +13,8 @@
 A python parser for reading files encoded in netCDF-3 CDL format. The parser is based upon the
 flex and yacc files used by the ncgen3 utility that ships with the standard netCDF distribution.
 
+Basic Usage
+-----------
 The basic usage idiom for parsing CDL text files is as follows:
 
     myparser = CDL3Parser(...)
@@ -50,14 +52,27 @@ You can control the format of the netCDF output file using the 'file_format' key
 CDL3Parser constructor. For a description of this and other keyword arguments, read the docstring
 for the CDLParser.__init__ method.
 
-Package Dependencies:
-   PLY - http://www.dabeaz.com/ply/
-   netcdf4-python - http://code.google.com/p/netcdf4-python/
-   NumPy - http://numpy.scipy.org/
+Error-handling
+--------------
+Error-handling is fairly simple in the current version of cdlparser. A CDLSyntaxError exception is
+raised if the CDL input source contains syntax errors. If the syntax is fine but there are errors
+in the CDL content, then a CDLContentError exception is raised.
+
+The cause of any parsing problems can hopefully be determined by examining the exception text in
+combination with any error messages output by the logger object.
+
+Package Dependencies
+--------------------
+The cdlparser module depends upon the following Python packages. If you don't already have these
+then you'll need to download and install them.
+
+* PLY - http://www.dabeaz.com/ply/
+* netcdf4-python - http://code.google.com/p/netcdf4-python/
+* NumPy - http://numpy.scipy.org/
 
 Creator: Phil Bentley
 """
-__version_info__ = (0, 0, 4, 'beta', 0)
+__version_info__ = (0, 0, 5, 'beta', 0)
 __version__ = "%d.%d.%d-%s" % __version_info__[0:4]
 
 import sys, os, logging, types
@@ -196,7 +211,7 @@ class CDLParser(object) :
       return self.ncdataset
 
    def init_logger(self) :
-      """Configure the global logger object."""
+      """Configure a logger object for the parser."""
       console = logging.StreamHandler(stream=sys.stderr)
       console.setLevel(self.log_level)
       fmtr = logging.Formatter(DEFAULT_LOG_FORMAT)
@@ -416,13 +431,15 @@ class CDL3Parser(CDLParser) :
       r'\n+'
       t.lexer.lineno += len(t.value)
 
-   # error handler
-   # TODO: add some useful behaviour
    def t_error(self, t):
-      print("Illegal character in CDL input: '%s'" % t.value[0])
+      """Handles token errors."""
+      msg  = "Illegal character(s) encountered at line number %d, lexical position %d\n" % (t.lineno, t.lexpos)
+      msg += "Token value = '%s'" % t.value
+      self.logger.warning(msg)
       t.lexer.skip(1)
 
-   def lextest(self, data) :
+   def _lextest(self, data) :
+      """private function - for test purposes only"""
       self.lexer.input(data)
       print "-----"
       while 1 :
@@ -678,10 +695,14 @@ class CDL3Parser(CDLParser) :
       pass
 
    def p_error(self, p) :
-      # TODO: needs refining
+      """Handles parsing errors."""
       if p :
-         self.logger.error("Syntax error at token %s, value %s" % (p.type, p.value))
-      yacc.token()
+         errmsg  = "Syntax error at line number %d, lexical position %d\n" % (p.lineno, p.lexpos)
+         errmsg += "Token = %s, value = '%s'" % (p.type, p.value)
+      else :
+         errmsg = "Syntax error: premature EOF encountered."
+      self.logger.error(errmsg)
+      raise CDLSyntaxError(errmsg)
 
    def set_filename(self, ncname) :
       """Sets the netCDF filename based on the netCDF name token in the CDL input."""

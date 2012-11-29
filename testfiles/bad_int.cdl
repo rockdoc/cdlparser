@@ -1,0 +1,19 @@
+netcdf bad_int {
+// Test file containing integer constants with the deprecated L suffix.
+
+dimensions:
+   lat = 2 ;
+   lon = 3 ;
+
+variables:
+   int tas(lat, lon) ;
+      tas:standard_name = "air_temperature" ;
+      tas:units = "K" ;
+      tas:int1 = 123L ;
+
+// global attributes
+   :int2 = 456L ;
+
+data:
+   tas = 0, 1, 2, 3, 4, 5 ;
+}
