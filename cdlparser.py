@@ -1,3 +1,5 @@
+# Copyright (c) 2012, Philip A.D. Bentley
+# All rights reserved.
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 # ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 # WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
@@ -152,6 +154,7 @@ class CDLParser(object) :
       self.file_format = kw.pop('file_format', 'NETCDF3_CLASSIC')
       self.log_level = kw.pop('log_level', DEFAULT_LOG_LEVEL)
       self.cdlfile = None
+      self.ncdataset = None
       try:
          modname = os.path.split(os.path.splitext(__file__)[0])[1] + "_" + self.__class__.__name__
       except:
@@ -203,6 +206,10 @@ class CDLParser(object) :
       :returns: A handle to a netCDF4.Dataset object.
       """
       self.ncfile = ncfile
+      # if netcdf dataset handle exists, e.g. from previous parsing operation, try to close it
+      if self.ncdataset :
+         try :    self.ncdataset.close()
+         except : pass
       self.ncdataset = None
       self.curr_var = None
       self.curr_dim = None
