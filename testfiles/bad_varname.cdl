@@ -1,0 +1,19 @@
+netcdf bad_varname {
+// Test file containing an invalid variable name (tass) in the data section.
+
+dimensions:
+   lev = 1 ;
+   lat = 2 ;
+   lon = 3 ;
+
+variables:
+   int tas(lev, lat, lon) ;
+      tas:standard_name = "air_temperature" ;
+      tas:units = "K" ;
+
+// global attributes
+   :Conventions = "CF-1.5" ;
+
+data:
+   tass = 0, 1, 2, 3, 4, 5 ;
+}

@@ -1,0 +1,24 @@
+netcdf charvars {
+// Test file containing various character variables.
+
+dimensions:
+   nreg = 3 ;
+   namelen = 10 ;
+
+variables:
+   int regcodes(nreg) ;
+      regcodes:long_name = "region codes" ;
+   char regions(nreg, namelen) ;
+      regions:long_name = "region names" ;
+   char digits(namelen) ;
+      digits:long_name = "decimal digits" ;
+   char letter ;
+
+// global attributes
+
+data:
+   regcodes = 1, 2, 3 ;
+   regions = "Europe", "Americas", "Asia" ;
+   digits = "0123456789" ;
+   letter = "X" ;
+}

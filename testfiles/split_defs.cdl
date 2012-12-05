@@ -1,0 +1,26 @@
+netcdf split_defs {
+// Test file with variable and attribute definitions split into separate
+// blocks rather than interleaved, as is the usual convention.
+
+dimensions:
+   lev = 1 ;
+   lat = 2 ;
+   lon = 3 ;
+
+// variable definitions grouped together
+variables:
+   int tas(lev, lat, lon) ;
+   float height(lev) ;
+
+// global attributes
+:comment = "unusual layout of variables and attributes" ;
+
+// variable attributes grouped together
+height:units = "metre" ;
+tas:standard_name = "air_temperature" ;
+tas:units = "K" ;
+
+data:
+   tas = 0, 1, 2, 3, 4, 5 ;
+   height = 10.0f ;
+}
