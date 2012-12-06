@@ -74,7 +74,7 @@ then you'll need to download and install them.
 
 Creator: Phil Bentley
 """
-__version_info__ = (0, 0, 5, 'beta', 0)
+__version_info__ = (0, 0, 6, 'beta', 0)
 __version__ = "%d.%d.%d-%s" % __version_info__[0:4]
 
 import sys, os, logging, types
@@ -112,7 +112,7 @@ NC_NP_DATA_TYPE_MAP = {
 
 # default logging options
 DEFAULT_LOG_LEVEL  = logging.WARNING
-DEFAULT_LOG_FORMAT = "[%(levelname)s] %(name)s: %(message)s"
+DEFAULT_LOG_FORMAT = "[%(levelname)s] %(funcName)s: %(message)s"
 
 # Exception class for CDL syntax errors
 class CDLSyntaxError(Exception) :
@@ -213,7 +213,7 @@ class CDLParser(object) :
       self.ncdataset = None
       self.curr_var = None
       self.curr_dim = None
-      self.rec_dim = None
+      self.rec_dimname = None
       self.parser.parse(input=cdltext, lexer=self.lexer)
       return self.ncdataset
 
@@ -489,10 +489,10 @@ class CDL3Parser(CDLParser) :
       dimname = ""
       if isinstance(p[3], basestring) :
          if p[3] == "unlimited" :
-            if self.rec_dim : raise CDLContentError("Only one UNLIMITED dimension is allowed.")
+            if self.rec_dimname : raise CDLContentError("Only one UNLIMITED dimension is allowed.")
             dimname = p[1]
             dimlen = 0
-            self.rec_dim = dimname
+            self.rec_dimname = dimname
          else :
             raise CDLContentError("Unrecognised dimension length specifier: '%s'." % p[3])
       else :
@@ -647,9 +647,10 @@ class CDL3Parser(CDLParser) :
          arr = p[3]
          try :
             self.write_var_data(var, arr)
-            self.logger.info("Wrote %d data values for variable %s" % (len(arr), p[1]))
-         except CDLContentError :
-            pass  # FIXME: for now continue after data write error
+            self.logger.info("Wrote %d data value(s) for variable %s" % (len(arr), p[1]))
+         except Exception, exc :
+            self.logger.error(str(exc))
+            raise
 
    def p_constlist(self, p) :
       """constlist : constlist ',' dconst
@@ -747,49 +748,120 @@ class CDL3Parser(CDLParser) :
 
    def write_var_data(self, var, arr) :
       """Write data array to variable var."""
-      arrlen = len(arr)
+      self.logger.debug("Scanning data array for variable %s" % var._name)
 
-      # see if we're dealing with a record variable
-      recvar = self.rec_dim in var.dimensions
-      if recvar :
-         rec_dimlen = len(self.ncdataset.dimensions[self.rec_dim])
+      # This method needs to take account of the following factors...
+      # - whether the variable is scalar or vector
+      # - whether the variable is numeric or character-valued
+      # - whether the input data array needs padding with fill values
+      # - whether the variable is a record variable, i.e. has an unlimited dimension
+
+      is_scalar = (var.ndim == 0)
+      is_charvar = (var.dtype.kind == 'S')
+      is_recvar = self.rec_dimname in var.dimensions
+
+      # scalar variables ought to be fairly straightforward      
+      if is_scalar :
+         try :
+            var.assignValue(arr[0])
+         except :
+            errmsg = "Error attempting to assign data value to scalar variable %s" % var._name
+            self.logger.error(errmsg)
+            raise CDLContentError(errmsg)
+         return
+
+      # determine the expected number of data values for the current variable
+      # for char-valued variables we need to divide by the length of the last dimension
+      arrlen = len(arr)
+      varlen = var.size
+      if is_charvar and var.ndim > 0 :
+         varlen /= var.shape[-1]
+      reclen = 0
+      self.logger.debug("Length of passed-in data array = %d" % arrlen)
+      if varlen : self.logger.debug("Expected length of variable = %d" % varlen)
+
+      # see if we're dealing with a record variable; if so then work out the record length and, if
+      # length of record dimension is 0, assume that total variable length = length of input array
+      if is_recvar :
+         rec_dimlen = len(self.ncdataset.dimensions[self.rec_dimname])
          if rec_dimlen > 0 :   # record dimension has been set to non-zero
-            varlen = var.size
             reclen = varlen / rec_dimlen
          else :                # record dimension is still equal to zero
             varlen = arrlen
             reclen = 1
             if var.ndim > 1 : reclen = reduce(lambda x,y: x*y, [x for x in var.shape if x > 0])
-      else :
-         varlen = var.size
-         reclen = varlen
+            self.logger.debug("Expected length of variable = %d" % varlen)
+         # check that reclen is integer factor of variable length
+         if varlen % reclen != 0 :
+            errmsg = "Record length %d is not a factor of variable length %d" % (reclen, varlen)
+            raise CDLContentError(errmsg)
+         self.logger.debug("Length of one data record = %d" % reclen)
 
-      # pad out array with fill values if too few data values were defined in CDL file
+      # pad out data array with fill values if too few values were defined in the CDL source
       if arrlen < varlen :
-         if '_FillValue' in var.ncattrs() :
-            fv = var._FillValue
-         else :
-            fv = get_default_fill_value(var.dtype.char)
-         arr.extend([fv]*(varlen-arrlen))
+         pad_array(var, varlen, arr)
+         self.logger.info("Padded input data array with %d fill values" % (varlen-arrlen))
          arrlen = len(arr)
 
       # convert input data to suitably shaped numpy array
       try :
-         shape = list(var.shape)
-         nparr = np.array(arr, dtype=var.dtype)
-         if recvar :
-            nrecs = arrlen / reclen
-            shape[0] = nrecs
-            nparr.shape = shape
-            var[:] = nparr
+         if is_charvar :
+            put_char_data(var, arr, reclen)
          else :
-            nparr.shape = shape
-            var[:] = nparr
+            put_numeric_data(var, arr, reclen)
       except Exception, exc :
          errmsg = "Error attempting to write data array for variable %s\n" % var._name
          errmsg += "Exception details are as follows:\n%s" % str(exc)
-         self.logger.error(errmsg)
          raise CDLContentError(errmsg)
+
+#---------------------------------------------------------------------------------------------------
+def put_numeric_data(var, arr, reclen=0) :
+#---------------------------------------------------------------------------------------------------
+   """Write numeric data array to netcdf variable."""
+   nparr = np.array(arr, dtype=var.dtype)
+   shape = list(var.shape)
+   if reclen : shape[0] = len(arr) / reclen
+   nparr.shape = shape
+   var[:] = nparr
+
+#---------------------------------------------------------------------------------------------------
+def put_char_data(var, arr, reclen=0) :
+#---------------------------------------------------------------------------------------------------
+   """Write character data array to netcdf variable."""
+   maxlen = var.shape[-1] if var.ndim > 0 else 1
+   nparr = str_list_to_char_arr(arr, maxlen)
+   shape = list(var.shape)
+   if reclen : shape[0] = len(arr) / reclen
+   nparr.shape = shape
+   var[:] = nparr
+
+#---------------------------------------------------------------------------------------------------
+def str_list_to_char_arr(slist, maxlen) :
+#---------------------------------------------------------------------------------------------------
+   """
+   Convert a list of regular python strings to a numpy character array of type '|S1', which is what
+   is required by the netCDF4 module. The maximum length of each string in the output netcdf array
+   is defined by maxlen. It's usually the last dimension in the variable declaration.
+   """
+   stype = 'S%d' % maxlen
+   tarr = np.array(slist, dtype=stype)
+   return nc4.stringtochar(tarr)
+
+#---------------------------------------------------------------------------------------------------
+def pad_array(var, varlen, arr) :
+#---------------------------------------------------------------------------------------------------
+   """
+   Pad out array arr with fill values if it contains fewer elements than are required by the host
+   variable.
+   """
+   if '_FillValue' in var.ncattrs() :
+      fv = var._FillValue
+   elif 'missing_value' in var.ncattrs() :
+      fv = var.missing_value
+   else :
+      fv = get_default_fill_value(var.dtype.char)
+   arrlen = len(arr)
+   arr.extend([fv]*(varlen-arrlen))
 
 #---------------------------------------------------------------------------------------------------
 def deescapify(name) :

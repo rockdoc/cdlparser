@@ -1,0 +1,21 @@
+netcdf dna_codes {
+// Test file containing a character-valued record variable.
+
+dimensions:
+   rec = unlimited ;
+   code = 3 ;
+   codelen = 4 ;
+
+variables:
+   int sampleid(rec) ;
+      sampleid:long_name = "sample id" ;
+   char dna_code(rec, code, codelen) ;
+      dna_code:long_name = "DNA code" ;
+
+// global attributes
+
+data:
+   sampleid = 1, 2 ;   // initialises 2 record variables
+   dna_code = "ACTG", "ACGG", "ATGC",
+              "CTGA", "GCTA", "TGCA";
+}

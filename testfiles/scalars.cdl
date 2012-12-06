@@ -1,0 +1,22 @@
+netcdf scalars {
+// Test file containing a scalar variable for each data type. 
+
+dimensions:
+   dim1 = 1 ;
+
+variables:
+   byte bvar ;
+   char cvar ;
+   int ivar ;
+   float fvar ;
+   double dvar ;
+
+// global attributes
+
+data:
+   bvar = 127b ;
+   cvar = "x" ;
+   ivar = 42 ;
+   fvar = 2.718f ;
+   dvar = 3.14159 ;
+}
