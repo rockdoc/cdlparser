@@ -297,7 +297,7 @@ class CDL3Parser(CDLParser) :
       Construct a CDL3Parser instance. See the CDLParser.__init__ docstring for a description of the
       currently supported keyword arguments.
       """
-      CDLParser.__init__(self, **kw)
+      super(CDL3Parser, self).__init__(**kw)
 
    ### TOKEN DEFINITIONS
 
@@ -354,7 +354,7 @@ class CDL3Parser(CDLParser) :
          t.type = self.reserved_words[t.value]
       else :
          t.type = "IDENT"
-      return(t)
+      return t
 
    # numeric constants (order of appearance is extremely important and differs from ncgen3.l file)
    @TOKEN(float_const)
@@ -919,7 +919,7 @@ def main() :
    """Rudimentary main function - primarily for testing purposes at this point in time."""
    debug = 0
    if len(sys.argv) < 2 :
-      print "usage: python cldparser.py cdlfile [keyword=value, ...]"
+      print "usage: python cdlparser.py cdlfile [keyword=value, ...]"
       sys.exit(1)
    cdlfile = sys.argv[1]
    kwargs = {}
