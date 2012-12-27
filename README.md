@@ -7,6 +7,12 @@ The current version only supports the CDL grammar recognised by version 3.x of t
 netCDF library and tools (i.e. netCDF classic).
 
 Please refer to the [wiki documentation](https://github.com/rockdoc/cdlparser/wiki)
-for more information about using cdlparser, dependencies on other python packages, etc.
+for more information about using cdlparser, dependencies on other python packages, and so on.
 
-WARNING: This is currently a work-in-progress. It is not production-grade code.
+Copyright and Licensing
+-----------------------
+
+Copyright (c), 2012 Philip A.D. Bentley
+
+This software is made available under a BSD 3-clause license.
+Please refer to the accompanying LICENSE.TXT file.
