@@ -12,7 +12,7 @@ for more information about using cdlparser, dependencies on other python package
 Copyright and Licensing
 -----------------------
 
-Copyright (c), 2012 Philip A.D. Bentley
+Copyright (c) 2012, Philip A.D. Bentley
 
 This software is made available under a BSD 3-clause license.
 Please refer to the accompanying LICENSE.TXT file.
