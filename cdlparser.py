@@ -35,11 +35,13 @@ e.g.:
 In addition to parsing CDL files, you can also parse CDL definitions stored in plain text strings.
 The parse_text() method is used in this case, as shown below:
 
-    cdltext = 'netcdf mydataset { dimensions: dim1=10; variables: float var1(dim1); var1:comment="blah blah"; }'
+    cdltext = r'netcdf mydataset { dimensions: dim1=10; variables: float var1(dim1); var1:comment="blah blah"; }'
     myparser = CDL3Parser(...)
     ncdataset = myparser.parse_text(cdltext)
 
 The above code should create a netCDF file called 'mydataset.nc' in the current working directory.
+Note that the CDL text will usually need to be a raw string of the form r'...' in order for the
+string to be passed unmodified to the parser.
 
 You can control the format of the netCDF output file using the 'file_format' keyword argument to the
 CDL3Parser constructor. For a description of this and other keyword arguments, read the docstring
@@ -353,7 +355,7 @@ class CDL3Parser(CDLParser) :
       except :
          errmsg = "Bad float constant: %s" % t.value
          raise CDLContentError(errmsg)
-      t.value = float_val
+      t.value = np.float32(float_val)
       return t
 
    @TOKEN(double_const)
@@ -368,7 +370,7 @@ class CDL3Parser(CDLParser) :
       except :
          errmsg = "Bad double constant: %s" % t.value
          raise CDLContentError(errmsg)
-      t.value = double_val
+      t.value = np.float64(double_val)
       return t
 
    def t_SHORT_CONST(self, t) :
@@ -382,7 +384,7 @@ class CDL3Parser(CDLParser) :
       if int_val < -32768 or int_val > 32767 :
          errmsg = "Short constant is outside valid range (-32768 -> 32767): %s" % int_val
          raise CDLContentError(errmsg)
-      t.value = int_val
+      t.value = np.int16(int_val)
       return t
 
    @TOKEN(byte_const)
@@ -400,7 +402,7 @@ class CDL3Parser(CDLParser) :
       if int_val < -128 or int_val > 127 :
          errmsg = "Byte constant outside valid range (-128 -> 127): %s" % int_val
          raise CDLContentError(errmsg)
-      t.value = int_val
+      t.value = np.int8(int_val)
       return t
 
    # The following implementation for handling integer constants is a conflation of the separate
@@ -419,7 +421,7 @@ class CDL3Parser(CDLParser) :
             % (XDR_INT_MIN, XDR_INT_MAX, int_val)
          raise CDLContentError(errmsg)
       else :
-         t.value = int(long_val)
+         t.value = np.int32(long_val)
       return t
 
    # newlines
