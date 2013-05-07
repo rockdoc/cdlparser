@@ -67,7 +67,7 @@ then you'll need to download and install them.
 
 Creator: Phil Bentley
 """
-__version_info__ = (0, 0, 7, 'beta', 0)
+__version_info__ = (0, 0, 8, 'beta', 0)
 __version__ = "%d.%d.%d-%s" % __version_info__[0:4]
 
 import sys, os, logging, types
@@ -250,7 +250,7 @@ class CDL3Parser(CDLParser) :
       'float':   'FLOAT_K',
       'real':    'FLOAT_K',
       'double':  'DOUBLE_K',
-   'unlimited':  'NC_UNLIMITED_K'
+      'unlimited': 'NC_UNLIMITED_K'
    }
 
    # the full list of CDL tokens to parse - mostly named exactly as per the ncgen.l file
@@ -590,6 +590,7 @@ class CDL3Parser(CDLParser) :
             raise CDLContentError("Variable %s is not defined or reference precedes definition." \
                % varname)
          self.curr_var = self.ncdataset.variables[varname]
+         self.logger.debug("Current variable set to '%s'" % varname)
       p[0] = varname
 
    def p_attr(self, p) :
@@ -667,12 +668,13 @@ class CDL3Parser(CDLParser) :
       # return the value of the constant, or the current variable's fill value if the specified
       # constant value is the string '_'.
       if p[1] == FILL_STRING :
-         if self.curr_var and self.curr_var.dtype.kind != 'S' :   # numeric variables only
+         if self.curr_var is not None and self.curr_var.dtype.kind != 'S' :   # numeric variables only
             if '_FillValue' in self.curr_var.ncattrs() :
                p[0] = self.curr_var._FillValue
             else :
                p[0] = get_default_fill_value(self.curr_var.dtype.char)
          else :
+            self.logger.warn("Unable to replace fill value. Check CDL input for possible errors.")
             p[0] = p[1]
       else :
          p[0] = p[1]
@@ -758,6 +760,7 @@ class CDL3Parser(CDLParser) :
       if is_scalar :
          try :
             var.assignValue(arr[0])
+            self.logger.debug("Assigned value %r to scalar variable %s" % (arr[0], var._name))
          except :
             errmsg = "Error attempting to assign data value to scalar variable %s" % var._name
             self.logger.error(errmsg)
